@@ -190,8 +190,14 @@ class FaceSwapper(private val source: Bitmap) {
         var i = 0
         while (i < fp.size) {
             if (Color.alpha(mp[i]) > 160 && Color.alpha(lp[i]) > 200) {
-                fs[0] += Color.red(fp[i]); fs[1] += Color.green(fp[i]); fs[2] += Color.blue(fp[i])
-                ls[0] += Color.red(lp[i]); ls[1] += Color.green(lp[i]); ls[2] += Color.blue(lp[i])
+                val f = fp[i]
+                val l = lp[i]
+                fs[0] = fs[0] + ((f shr 16) and 0xFF).toDouble()
+                fs[1] = fs[1] + ((f shr 8) and 0xFF).toDouble()
+                fs[2] = fs[2] + (f and 0xFF).toDouble()
+                ls[0] = ls[0] + ((l shr 16) and 0xFF).toDouble()
+                ls[1] = ls[1] + ((l shr 8) and 0xFF).toDouble()
+                ls[2] = ls[2] + (l and 0xFF).toDouble()
                 count++
             }
             i += 3
