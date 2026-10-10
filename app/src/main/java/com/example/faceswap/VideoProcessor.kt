@@ -30,6 +30,9 @@ class VideoProcessor(private val ctx: Context) {
         videoUri: Uri,
         swapper: FaceSwapper,
         outUri: Uri,
+        startMs: Long,
+        endMs: Long,
+        keepRest: Boolean,
         onProgress: (Int) -> Unit,
         cancelled: () -> Boolean
     ): Boolean {
@@ -49,7 +52,16 @@ class VideoProcessor(private val ctx: Context) {
         val scale = min(1f, MAX_SIDE.toFloat() / max(vw, vh))
         val ow = max(2, (vw * scale).toInt() and 1.inv())
         val oh = max(2, (vh * scale).toInt() and 1.inv())
-        val totalFrames = max(1, (durationMs * OUTPUT_FPS / 1000).toInt())
+
+        // Swap range, clamped to the video. Output is either just that range, or the whole video
+        // with only the range swapped.
+        val swapStartMs = startMs.coerceIn(0L, durationMs)
+        val swapEndMs = endMs.coerceIn(0L, durationMs)
+        if (swapEndMs <= swapStartMs) throw IllegalStateException("End must be after start")
+        val outStartMs = if (keepRest) 0L else swapStartMs
+        val outEndMs = if (keepRest) durationMs else swapEndMs
+        val outStartUs = outStartMs * 1000L
+        val totalFrames = max(1, ((outEndMs - outStartMs) * OUTPUT_FPS / 1000).toInt())
 
         // Audio track (optional).
         val audioExtractor = MediaExtractor()
@@ -125,12 +137,14 @@ class VideoProcessor(private val ctx: Context) {
             for (i in 0 until totalFrames) {
                 if (cancelled()) return false
 
-                val timeUs = i * 1_000_000L / OUTPUT_FPS
+                val timeUs = outStartUs + i * 1_000_000L / OUTPUT_FPS
+                val timeMs = timeUs / 1000L
                 val frame = mmr.getScaledFrameAtTime(
                     timeUs, MediaMetadataRetriever.OPTION_CLOSEST, ow, oh
                 ) ?: last
                 if (frame != null) {
-                    val swapped = swapper.swap(frame)
+                    val inRange = timeMs in swapStartMs..swapEndMs
+                    val swapped = if (inRange) swapper.swap(frame) else frame
                     val canvas = surface.lockCanvas(null)
                     canvas.drawBitmap(swapped, null, dstRect, null)
                     surface.unlockCanvasAndPost(canvas)
@@ -147,13 +161,17 @@ class VideoProcessor(private val ctx: Context) {
             // Copy original audio.
             if (muxerStarted && audioTrack >= 0 && audioIndex >= 0) {
                 audioExtractor.selectTrack(audioIndex)
+                audioExtractor.seekTo(outStartUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
                 val buf = ByteBuffer.allocate(1 shl 20)
                 val ai = MediaCodec.BufferInfo()
                 val videoEndUs = outCount * 1_000_000L / OUTPUT_FPS
                 while (true) {
                     val size = audioExtractor.readSampleData(buf, 0)
-                    val t = audioExtractor.sampleTime
-                    if (size < 0 || t < 0 || t > videoEndUs) break
+                    val sampleUs = audioExtractor.sampleTime
+                    if (size < 0 || sampleUs < 0) break
+                    val t = sampleUs - outStartUs   // shift so the clip starts at 0
+                    if (t > videoEndUs) break
+                    if (t < 0) { audioExtractor.advance(); continue }
                     ai.set(
                         0, size, t,
                         if (audioExtractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0)

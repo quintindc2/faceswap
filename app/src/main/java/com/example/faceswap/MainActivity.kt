@@ -12,12 +12,17 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.ImageView
 import android.widget.ProgressBar
+import android.widget.SeekBar
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import java.util.Locale
+import java.util.concurrent.Executors
 import kotlin.math.max
+import kotlin.math.min
 
 class MainActivity : ComponentActivity() {
 
@@ -26,6 +31,16 @@ class MainActivity : ComponentActivity() {
     private var resultUri: Uri? = null
     private var worker: Thread? = null
     @Volatile private var cancelled = false
+
+    // Swap range (milliseconds into the video).
+    private var durationMs = 0L
+    private var startMs = 0L
+    private var endMs = 0L
+
+    // Frame previews are decoded on one background thread; the retriever is only used there.
+    private val previewExecutor = Executors.newSingleThreadExecutor()
+    private var previewRetriever: MediaMetadataRetriever? = null
+    private var previewTicket = 0
 
     private lateinit var imagePreview: ImageView
     private lateinit var videoPreview: ImageView
@@ -36,6 +51,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var playBtn: Button
     private lateinit var progress: ProgressBar
     private lateinit var status: TextView
+    private lateinit var trimGroup: View
+    private lateinit var startBar: SeekBar
+    private lateinit var endBar: SeekBar
+    private lateinit var startLabel: TextView
+    private lateinit var endLabel: TextView
+    private lateinit var keepRestCheck: CheckBox
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
@@ -50,14 +71,40 @@ class MainActivity : ComponentActivity() {
     private val pickVideo = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             videoUri = uri
-            try {
-                val r = MediaMetadataRetriever()
-                r.setDataSource(this, uri)
-                videoPreview.setImageBitmap(r.getFrameAtTime(0))
-                r.release()
-            } catch (e: Exception) { status.text = "Can't open that video." }
             playBtn.visibility = View.GONE
+            trimGroup.visibility = View.GONE
+            videoPreview.setImageDrawable(null)
             updateButtons()
+            previewExecutor.execute {
+                try {
+                    previewRetriever?.release()
+                    val r = MediaMetadataRetriever()
+                    r.setDataSource(this, uri)
+                    previewRetriever = r
+                    val dur = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        ?.toLongOrNull() ?: 0L
+                    val first = r.getFrameAtTime(0)
+                    runOnUiThread {
+                        if (dur <= 0L) {
+                            status.text = "Can't read that video."
+                        } else {
+                            durationMs = dur
+                            startMs = 0L
+                            endMs = dur
+                            startBar.max = dur.toInt()
+                            endBar.max = dur.toInt()
+                            startBar.progress = 0
+                            endBar.progress = dur.toInt()
+                            updateLabels()
+                            trimGroup.visibility = View.VISIBLE
+                            if (first != null) videoPreview.setImageBitmap(first)
+                            status.text = "Drag the sliders to choose which part to swap."
+                        }
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread { status.text = "Can't open that video." }
+                }
+            }
         }
     }
 
@@ -74,6 +121,15 @@ class MainActivity : ComponentActivity() {
         playBtn = findViewById(R.id.playBtn)
         progress = findViewById(R.id.progress)
         status = findViewById(R.id.status)
+        trimGroup = findViewById(R.id.trimGroup)
+        startBar = findViewById(R.id.startBar)
+        endBar = findViewById(R.id.endBar)
+        startLabel = findViewById(R.id.startLabel)
+        endLabel = findViewById(R.id.endLabel)
+        keepRestCheck = findViewById(R.id.keepRestCheck)
+
+        bindBar(startBar, isStart = true)
+        bindBar(endBar, isStart = false)
 
         pickImageBtn.setOnClickListener { pickImage.launch("image/*") }
         pickVideoBtn.setOnClickListener { pickVideo.launch("video/*") }
@@ -91,14 +147,66 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         cancelled = true
+        previewExecutor.execute { try { previewRetriever?.release() } catch (_: Exception) {} }
+        previewExecutor.shutdown()
         super.onDestroy()
+    }
+
+    private fun bindBar(bar: SeekBar, isStart: Boolean) {
+        bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar, p: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                val gap = min(300L, durationMs / 2)
+                if (isStart) {
+                    startMs = min(p.toLong(), endMs - gap).coerceAtLeast(0L)
+                    startBar.progress = startMs.toInt()
+                } else {
+                    endMs = max(p.toLong(), startMs + gap).coerceAtMost(durationMs)
+                    endBar.progress = endMs.toInt()
+                }
+                updateLabels()
+                showFrame(if (isStart) startMs else endMs)
+            }
+
+            override fun onStartTrackingTouch(sb: SeekBar) {}
+            override fun onStopTrackingTouch(sb: SeekBar) {}
+        })
+    }
+
+    private fun updateLabels() {
+        startLabel.text = "Start: ${formatTime(startMs)}"
+        endLabel.text = "End: ${formatTime(endMs)}   (clip length ${formatTime(endMs - startMs)})"
+    }
+
+    private fun formatTime(ms: Long): String {
+        val totalSec = ms / 1000.0
+        val minutes = (totalSec / 60).toInt()
+        val sec = totalSec - minutes * 60
+        return String.format(Locale.US, "%d:%04.1f", minutes, sec)
+    }
+
+    private fun showFrame(ms: Long) {
+        val ticket = ++previewTicket
+        previewExecutor.execute {
+            val bmp = try {
+                previewRetriever?.getFrameAtTime(
+                    ms * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+                )
+            } catch (_: Exception) { null }
+            if (bmp != null) {
+                runOnUiThread { if (ticket == previewTicket) videoPreview.setImageBitmap(bmp) }
+            }
+        }
     }
 
     private fun updateButtons() {
         val busy = worker != null
-        swapBtn.isEnabled = !busy && imageUri != null && videoUri != null
+        swapBtn.isEnabled = !busy && imageUri != null && videoUri != null && durationMs > 0
         pickImageBtn.isEnabled = !busy
         pickVideoBtn.isEnabled = !busy
+        startBar.isEnabled = !busy
+        endBar.isEnabled = !busy
+        keepRestCheck.isEnabled = !busy
         cancelBtn.visibility = if (busy) View.VISIBLE else View.GONE
         progress.visibility = if (busy) View.VISIBLE else View.GONE
     }
@@ -106,6 +214,9 @@ class MainActivity : ComponentActivity() {
     private fun startSwap() {
         val img = imageUri ?: return
         val vid = videoUri ?: return
+        val rangeStart = startMs
+        val rangeEnd = endMs
+        val keepRest = keepRestCheck.isChecked
         cancelled = false
         playBtn.visibility = View.GONE
         progress.progress = 0
@@ -123,7 +234,7 @@ class MainActivity : ComponentActivity() {
                     } else {
                         out = createOutputUri()
                         val done = VideoProcessor(this).process(
-                            vid, swapper, out,
+                            vid, swapper, out, rangeStart, rangeEnd, keepRest,
                             { p -> runOnUiThread { progress.progress = p; status.text = "Processing… $p%" } },
                             { cancelled }
                         )

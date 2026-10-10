@@ -4,6 +4,12 @@ Pick a face image and a video from your phone, tap **Swap face**, and the app wr
 to `Movies/FaceSwap`. Fully offline: no INTERNET permission, and the face-detection model is
 bundled inside the APK.
 
+## Choosing the swap range
+After selecting a video, two sliders set the **start** and **end** of the part to swap; the
+preview frame follows the slider you drag. By default the output is just that clip (audio
+trimmed to match). Tick **Keep the rest of the video (unswapped)** to export the whole video with
+only the chosen range swapped.
+
 ## Build
 1. Open this folder in Android Studio (Koala or newer, JDK 17).
 2. Let Gradle sync. Android Studio generates the Gradle wrapper if it is missing.
