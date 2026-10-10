@@ -21,7 +21,7 @@ jobs:
           gradle assembleDebug --no-daemon --console=plain > build.log 2>&1
           code=$?
           if [ $code -ne 0 ]; then
-            msg=$(grep -E "^e: |error:|What went wrong|Execution failed|^> |FAILED|not found|Could not" build.log | head -30 | sed 's/%/%25/g' | awk '{printf "%s%%0A",$0}')
+            msg=$(grep -vE "^> Task .*(UP-TO-DATE|NO-SOURCE)?$" build.log | grep -E "^e: |^w: .*kt|error:|What went wrong|Execution failed|FAILED|not found|Could not|^> [A-Z]" | grep -v '^> Task' | head -30 | sed 's/%/%25/g' | awk '{printf "%s%%0A",$0}')
             echo "::error title=Gradle::${msg}"
           fi
           exit $code
