@@ -57,6 +57,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var startLabel: TextView
     private lateinit var endLabel: TextView
     private lateinit var keepRestCheck: CheckBox
+    private lateinit var expressionBar: SeekBar
+    private lateinit var expressionLabel: TextView
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
@@ -127,6 +129,16 @@ class MainActivity : ComponentActivity() {
         startLabel = findViewById(R.id.startLabel)
         endLabel = findViewById(R.id.endLabel)
         keepRestCheck = findViewById(R.id.keepRestCheck)
+        expressionBar = findViewById(R.id.expressionBar)
+        expressionLabel = findViewById(R.id.expressionLabel)
+        expressionBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar, p: Int, fromUser: Boolean) {
+                expressionLabel.text = "Follow expressions: $p%"
+            }
+
+            override fun onStartTrackingTouch(sb: SeekBar) {}
+            override fun onStopTrackingTouch(sb: SeekBar) {}
+        })
 
         bindBar(startBar, isStart = true)
         bindBar(endBar, isStart = false)
@@ -207,6 +219,7 @@ class MainActivity : ComponentActivity() {
         startBar.isEnabled = !busy
         endBar.isEnabled = !busy
         keepRestCheck.isEnabled = !busy
+        expressionBar.isEnabled = !busy
         cancelBtn.visibility = if (busy) View.VISIBLE else View.GONE
         progress.visibility = if (busy) View.VISIBLE else View.GONE
     }
@@ -217,6 +230,7 @@ class MainActivity : ComponentActivity() {
         val rangeStart = startMs
         val rangeEnd = endMs
         val keepRest = keepRestCheck.isChecked
+        val expression = expressionBar.progress / 100f
         cancelled = false
         playBtn.visibility = View.GONE
         progress.progress = 0
@@ -228,6 +242,7 @@ class MainActivity : ComponentActivity() {
             var success = false
             try {
                 val swapper = FaceSwapper(loadBitmap(this, img, 1280))
+                swapper.expressionStrength = expression
                 try {
                     if (!swapper.sourceHasFace()) {
                         message = "No face found in the image. Try a clearer, front-facing photo."

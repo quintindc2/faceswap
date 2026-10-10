@@ -93,6 +93,20 @@
                 android:text="Keep the rest of the video (unswapped)" />
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/expressionLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Follow expressions: 100%" />
+
+        <SeekBar
+            android:id="@+id/expressionBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progress="100" />
+
         <Button
             android:id="@+id/swapBtn"
             android:layout_width="match_parent"
