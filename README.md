@@ -4,19 +4,6 @@ Pick a face image and a video from your phone, tap **Swap face**, and the app wr
 to `Movies/FaceSwap`. Fully offline: no INTERNET permission, and the face-detection model is
 bundled inside the APK.
 
-## Choosing the swap range
-After selecting a video, two sliders set the **start** and **end** of the part to swap; the
-preview frame follows the slider you drag. By default the output is just that clip (audio
-trimmed to match). Tick **Keep the rest of the video (unswapped)** to export the whole video with
-only the chosen range swapped.
-
-## Eye and mouth movement
-The photo's face is drawn through a mesh of ~100 facial points that is moved to match the video
-face on every frame, so blinks, brow movement and mouth shapes carry over. When the mouth is
-open, the video's real mouth interior is kept on top. The **Follow expressions** slider goes from
-0% (rigid paste, keeps the photo's face shape) to 100% (fully follows the video face). Landmarks are
-smoothed between frames to reduce jitter. Gaze direction and tongue/teeth detail from the photo are not modelled.
-
 ## Build
 1. Open this folder in Android Studio (Koala or newer, JDK 17).
 2. Let Gradle sync. Android Studio generates the Gradle wrapper if it is missing.
